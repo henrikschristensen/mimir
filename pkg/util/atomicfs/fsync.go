@@ -6,8 +6,6 @@ import (
 	"bytes"
 	"io"
 	"os"
-	"path"
-	"runtime"
 )
 
 // // CreateFile creates a file in the filePath, write the data into the file and then execute
@@ -70,19 +68,6 @@ func CreateFile(filePath string, data io.Reader) error {
 	// Sync file to ensure data is written to disk
 	if err := file.Sync(); err != nil {
 		return err
-	}
-
-	// Skip directory sync on Windows
-	if runtime.GOOS != "windows" {
-		dir, err := os.OpenFile(path.Dir(filePath), os.O_RDONLY, 0777)
-		if err != nil {
-			return err
-		}
-		defer dir.Close() // Ensure directory is closed regardless of the errors below
-
-		if err := dir.Sync(); err != nil {
-			return err
-		}
 	}
 
 	return nil
