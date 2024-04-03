@@ -57,11 +57,13 @@
     },
 
     // Some dashboards show panels grouping together multiple components of a given "path".
-    // This mapping configures which components belong to each group.
+    // This mapping configures which components belong to each group. A component can belong
+    // to multiple groups.
     local componentGroups = {
       write: ['distributor', 'ingester', 'mimir_write'],
       read: ['query_frontend', 'querier', 'ruler_query_frontend', 'ruler_querier', 'mimir_read'],
       backend: ['query_scheduler', 'ruler_query_scheduler', 'ruler', 'store_gateway', 'compactor', 'alertmanager', 'overrides_exporter', 'mimir_backend'],
+      remote_ruler_read: ['ruler_query_frontend', 'ruler_query_scheduler', 'ruler_querier'],
     },
 
     // These are used by the dashboards and allow for the simultaneous display of
@@ -133,6 +135,7 @@
       write: componentsGroupMatcher(componentGroups.write),
       read: componentsGroupMatcher(componentGroups.read),
       backend: componentsGroupMatcher(componentGroups.backend),
+      remote_ruler_read: componentsGroupMatcher(componentGroups.remote_ruler_read),
     },
     all_instances: std.join('|', std.map(function(name) componentNameRegexp[name], componentGroups.write + componentGroups.read + componentGroups.backend)),
 
@@ -649,6 +652,9 @@
       'debug_pprof',
     ],
 
+    // All query methods from IngesterServer interface. Basically everything except Push.
+    ingester_read_path_routes_regex: '/cortex.Ingester/(QueryStream|QueryExemplars|LabelValues|LabelNames|UserStats|AllUserStats|MetricsForLabelMatchers|MetricsMetadata|LabelNamesAndValues|LabelValuesCardinality|ActiveSeries)',
+
     // The default datasource used for dashboards.
     dashboard_datasource: 'default',
     datasource_regex: '',
@@ -657,6 +663,10 @@
     // Set to at least twice the scrape interval; otherwise, recording rules will output no data.
     // Set to four times the scrape interval to account for edge cases: https://www.robustperception.io/what-range-should-i-use-with-rate/
     recording_rules_range_interval: '1m',
+
+    // Used to calculate range interval in alerts with default range selector under 10 minutes.
+    // Needed to account for edge cases: https://www.robustperception.io/what-range-should-i-use-with-rate/
+    base_alerts_range_interval_minutes: 1,
 
     // Used to inject rows into dashboards at specific places that support it.
     injectRows: {},
@@ -671,5 +681,11 @@
     // Disabled by default, because when -ingester.limit-inflight-requests-using-grpc-method-limiter and -distributor.limit-inflight-requests-using-grpc-method-limiter is
     // not used (default), then rejected requests are already counted as failures.
     show_rejected_requests_on_writes_dashboard: false,
+
+    // Show panels that use queries for gRPC-based ingestion (distributor -> ingester)
+    show_grpc_ingestion_panels: true,
+
+    // Show panels that use queries for "ingest storage" ingestion (distributor -> Kafka, Kafka -> ingesters)
+    show_ingest_storage_panels: false,
   },
 }
