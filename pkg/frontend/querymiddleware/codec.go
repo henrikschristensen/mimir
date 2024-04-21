@@ -89,8 +89,8 @@ type Merger interface {
 
 // MetricsQueryRequest represents an instant or query range request that can be process by middlewares.
 type MetricsQueryRequest interface {
-	// GetId returns the ID of the request used to correlate downstream requests and responses.
-	GetId() int64
+	// GetID returns the ID of the request used to correlate downstream requests and responses.
+	GetID() int64
 	// GetStart returns the start timestamp of the request in milliseconds.
 	GetStart() int64
 	// GetEnd returns the end timestamp of the request in milliseconds.
@@ -114,14 +114,12 @@ type MetricsQueryRequest interface {
 	WithTotalQueriesHint(int32) MetricsQueryRequest
 	// WithEstimatedSeriesCountHint WithEstimatedCardinalityHint adds a cardinality estimate to this request's Hints.
 	WithEstimatedSeriesCountHint(uint64) MetricsQueryRequest
-	proto.Message
 	// AddSpanTags writes information about this request to an OpenTracing span
 	AddSpanTags(opentracing.Span)
 }
 
 // LabelsQueryRequest represents a label names or values query request that can be process by middlewares.
 type LabelsQueryRequest interface {
-	proto.Message
 	// GetLabelName returns the label name param from a Label Values request `/api/v1/label/<label_name>/values`
 	// or an empty string for a Label Names request `/api/v1/labels`
 	GetLabelName() string
@@ -140,6 +138,8 @@ type LabelsQueryRequest interface {
 	// to and from the http request format without needing to undo the Prometheus parser converting between formats
 	// like `up{job="prometheus"}` and `{__name__="up, job="prometheus"}`, or other idiosyncrasies.
 	GetLabelMatcherSets() []string
+	// GetLimit returns the limit of the number of items in the response.
+	GetLimit() uint64
 	// AddSpanTags writes information about this request to an OpenTracing span
 	AddSpanTags(opentracing.Span)
 }
@@ -270,7 +270,7 @@ func (prometheusCodec) decodeRangeQueryRequest(r *http.Request) (MetricsQueryReq
 		return nil, err
 	}
 
-	result.Query = r.FormValue("query")
+	result.Query = reqValues.Get("query")
 	result.Path = r.URL.Path
 	decodeOptions(r, &result.Options)
 	return &result, nil
@@ -311,12 +311,21 @@ func (prometheusCodec) DecodeLabelsQueryRequest(_ context.Context, r *http.Reque
 
 	labelMatcherSets := reqValues["match[]"]
 
+	limit := uint64(0) // 0 means unlimited
+	if limitStr := reqValues.Get("limit"); limitStr != "" {
+		limit, err = strconv.ParseUint(limitStr, 10, 64)
+		if err != nil || limit == 0 {
+			return nil, apierror.New(apierror.TypeBadData, fmt.Sprintf("limit parameter must be a positive number: %s", limitStr))
+		}
+	}
+
 	if IsLabelNamesQuery(r.URL.Path) {
 		return &PrometheusLabelNamesQueryRequest{
 			Path:             r.URL.Path,
 			Start:            start,
 			End:              end,
 			LabelMatcherSets: labelMatcherSets,
+			Limit:            limit,
 		}, nil
 	}
 	// else, must be Label Values Request due to IsLabelsQuery check at beginning of func
@@ -326,6 +335,7 @@ func (prometheusCodec) DecodeLabelsQueryRequest(_ context.Context, r *http.Reque
 		Start:            start,
 		End:              end,
 		LabelMatcherSets: labelMatcherSets,
+		Limit:            limit,
 	}, nil
 }
 
@@ -526,6 +536,9 @@ func (c prometheusCodec) EncodeLabelsQueryRequest(ctx context.Context, req Label
 		if len(req.GetLabelMatcherSets()) > 0 {
 			urlValues["match[]"] = req.GetLabelMatcherSets()
 		}
+		if req.GetLimit() > 0 {
+			urlValues["limit"] = []string{strconv.FormatUint(req.GetLimit(), 10)}
+		}
 		u = &url.URL{
 			Path:     req.Path,
 			RawQuery: urlValues.Encode(),
@@ -542,6 +555,9 @@ func (c prometheusCodec) EncodeLabelsQueryRequest(ctx context.Context, req Label
 		}
 		if len(req.GetLabelMatcherSets()) > 0 {
 			urlValues["match[]"] = req.GetLabelMatcherSets()
+		}
+		if req.GetLimit() > 0 {
+			urlValues["limit"] = []string{strconv.FormatUint(req.GetLimit(), 10)}
 		}
 		u = &url.URL{
 			Path:     req.Path, // path still contains label name

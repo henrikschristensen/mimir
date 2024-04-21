@@ -80,7 +80,7 @@ How to **fix** it:
       sum by (user, pod) ( # get in-memory series for each tenant on each pod
           cortex_ingester_memory_series_created_total{namespace="<namespace>"} - cortex_ingester_memory_series_removed_total{namespace="<namespace>"}
       )
-      and on(user) # intersection with tenants that are exceeding 50% of their series limit (added acorss ingesters & accounting for replication)
+      and on(user) # intersection with tenants that are exceeding 50% of their series limit (added across ingesters & accounting for replication)
       (
           sum by (user) ( # total in-memory series for the tenant across ingesters
               cortex_ingester_memory_series_created_total{namespace="<namespace>"} - cortex_ingester_memory_series_removed_total{namespace="<namespace>"}
@@ -294,7 +294,7 @@ How to **investigate**:
 - If the `route` label is `alertmanager`, check the logs for distributor errors containing `component=AlertmanagerDistributor`
   - Check if instances are starved for resources using the `Mimir / Alertmanager resources` dashboard
   - If the distributor errors are `context deadline exceeded` and the instances are not starved for resources, increase the distributor
-    timeout with `-alertmanager.alertmanager-client.remote-timeout=<timeout>`. The defaut is 2s if not specified.
+    timeout with `-alertmanager.alertmanager-client.remote-timeout=<timeout>`. The default is 2s if not specified.
 
 ### MimirIngesterUnhealthy
 
@@ -302,7 +302,7 @@ This alert goes off when one or more ingesters are marked as unhealthy. Check th
 
 ### MimirMemoryMapAreasTooHigh
 
-This alert fires when a Mimir process has a number of memory map areas close to the limit. The limit is a per-process limit imposed by the kernel and this issue is typically caused by a large number of mmap-ed failes.
+This alert fires when a Mimir process has a number of memory map areas close to the limit. The limit is a per-process limit imposed by the kernel and this issue is typically caused by a large number of mmap-ed failures.
 
 How to **fix** it:
 
@@ -676,6 +676,25 @@ How to **investigate**:
 
 - Ensure the compactor is successfully running
 - Look for any error in the compactor logs
+- Check how long compactor cleanup tasks have been failing for
+  ```
+  sum(rate(cortex_compactor_block_cleanup_failed_total{namespace="<namespace>"}[$__rate_interval]))
+  ```
+- Check for object storage failures for the compactor
+  ```
+  sum(rate(thanos_objstore_bucket_operation_failures_total{namespace="<namespace>", component="compactor"}[$__rate_interval]))
+  ```
+
+How to **fix** it:
+
+- Temporarily increase the tolerance for stale bucket indexes on queriers:
+  ```
+  -blocks-storage.bucket-store.bucket-index.max-stale-period=2h
+  ```
+- Temporarily increase the frequency at which compactors perform cleanup tasks like updating bucket indexes:
+  ```
+  -compactor.cleanup-interval=5m
+  ```
 
 ### MimirInconsistentRuntimeConfig
 
@@ -1487,6 +1506,10 @@ sum is a regular float number.
 The series containing such samples are skipped during ingestion, and valid series within the same request are ingested.
 {{< /admonition >}}
 
+{{< admonition type="note" >}}
+When `-ingester.error-sample-rate` is configured to a value greater than `0`, invalid native histogram errors are logged only once every `-ingester.error-sample-rate` times.
+{{< /admonition >}}
+
 ### err-mimir-native-histogram-count-not-big-enough
 
 This non-critical error occures when Mimir receives a write request that contains a sample that is a native histogram
@@ -1495,6 +1518,10 @@ that the overall sum is not a float number (NaN).
 
 {{< admonition type="note" >}}
 The series containing such samples are skipped during ingestion, and valid series within the same request are ingested.
+{{< /admonition >}}
+
+{{< admonition type="note" >}}
+When `-ingester.error-sample-rate` is configured to a value greater than `0`, invalid native histogram errors are logged only once every `-ingester.error-sample-rate` times.
 {{< /admonition >}}
 
 ### err-mimir-native-histogram-negative-bucket-count
@@ -1506,6 +1533,10 @@ where some bucket count is negative.
 The series containing such samples are skipped during ingestion, and valid series within the same request are ingested.
 {{< /admonition >}}
 
+{{< admonition type="note" >}}
+When `-ingester.error-sample-rate` is configured to a value greater than `0`, invalid native histogram errors are logged only once every `-ingester.error-sample-rate` times.
+{{< /admonition >}}
+
 ### err-mimir-native-histogram-span-negative-offset
 
 This non-critical error occures when Mimir receives a write request that contains a sample that is a native histogram
@@ -1515,6 +1546,10 @@ where a bucket span has a negative offset.
 The series containing such samples are skipped during ingestion, and valid series within the same request are ingested.
 {{< /admonition >}}
 
+{{< admonition type="note" >}}
+When `-ingester.error-sample-rate` is configured to a value greater than `0`, invalid native histogram errors are logged only once every `-ingester.error-sample-rate` times.
+{{< /admonition >}}
+
 ### err-mimir-native-histogram-spans-buckets-mismatch
 
 This non-critical error occures when Mimir receives a write request that contains a sample that is a native histogram
@@ -1522,6 +1557,10 @@ where the number of bucket counts does not agree with the number of buckets enco
 
 {{< admonition type="note" >}}
 The series containing such samples are skipped during ingestion, and valid series within the same request are ingested.
+{{< /admonition >}}
+
+{{< admonition type="note" >}}
+When `-ingester.error-sample-rate` is configured to a value greater than `0`, invalid native histogram errors are logged only once every `-ingester.error-sample-rate` times.
 {{< /admonition >}}
 
 ### err-mimir-label-invalid
@@ -1578,6 +1617,10 @@ On a per-tenant basis, you can fine tune the tolerance by configuring the `creat
 
 {{< admonition type="note" >}}
 Only series with invalid samples are skipped during the ingestion. Valid samples within the same request are still ingested.
+{{< /admonition >}}
+
+{{< admonition type="note" >}}
+When `-ingester.error-sample-rate` is configured to a value greater than `0`, this error is logged only once every `-ingester.error-sample-rate` times.
 {{< /admonition >}}
 
 ### err-mimir-exemplar-too-far-in-future
@@ -1770,6 +1813,10 @@ How to **fix** it:
 - Ensure the actual number of series written by the affected tenant is legit.
 - Consider increasing the per-tenant limit by using the `-ingester.max-global-series-per-user` option (or `max_global_series_per_user` in the runtime configuration).
 
+{{< admonition type="note" >}}
+When `-ingester.error-sample-rate` is configured to a value greater than `0`, this error is logged only once every `-ingester.error-sample-rate` times.
+{{< /admonition >}}
+
 ### err-mimir-max-series-per-metric
 
 This error occurs when the number of in-memory series for a given tenant and metric name exceeds the configured limit.
@@ -1786,6 +1833,10 @@ How to **fix** it:
 - Consider reducing the cardinality of the affected metric, by tuning or removing some of its labels.
 - Consider increasing the per-tenant limit by using the `-ingester.max-global-series-per-metric` option.
 - Consider excluding specific metric names from this limit's check by using the `-ingester.ignore-series-limit-for-metric-names` option (or `max_global_series_per_metric` in the runtime configuration).
+
+{{< admonition type="note" >}}
+When `-ingester.error-sample-rate` is configured to a value greater than `0`, this error is logged only once every `-ingester.error-sample-rate` times.
+{{< /admonition >}}
 
 ### err-mimir-max-metadata-per-user
 
@@ -1804,6 +1855,10 @@ How to **fix** it:
 - Check the current number of metric names for the affected tenant, running the instant query `count(count by(__name__) ({__name__=~".+"}))`. Alternatively, you can get the cardinality of `__name__` label calling the API endpoint `/api/v1/cardinality/label_names`.
 - Consider increasing the per-tenant limit setting to a value greater than the number of unique metric names returned by the previous query.
 
+{{< admonition type="note" >}}
+When `-ingester.error-sample-rate` is configured to a value greater than `0`, this error is logged only once every `-ingester.error-sample-rate` times.
+{{< /admonition >}}
+
 ### err-mimir-max-metadata-per-metric
 
 This non-critical error occurs when the number of different metadata for a given metric name exceeds the configured limit.
@@ -1821,6 +1876,10 @@ How to **fix** it:
 - Check the metadata for the affected metric name, querying the `/api/v1/metadata?metric=<name>` API endpoint (replace `<name>` with the metric name).
 - If the different metadata is unexpected, consider fixing the discrepancy in the instrumented applications.
 - If the different metadata is expected, consider increasing the per-tenant limit by using the `-ingester.max-global-series-per-metric` option (or `max_global_metadata_per_metric` in the runtime configuration).
+
+{{< admonition type="note" >}}
+When `-ingester.error-sample-rate` is configured to a value greater than `0`, this error is logged only once every `-ingester.error-sample-rate` times.
+{{< /admonition >}}
 
 ### err-mimir-max-chunks-per-query
 
@@ -1962,6 +2021,10 @@ How it **works**:
 If the out-of-order sample ingestion is enabled, then this error is similar to `err-mimir-sample-out-of-order` below with a difference that the sample is older than the out-of-order time window as it relates to the latest sample for that particular time series or the TSDB.
 {{< /admonition >}}
 
+{{< admonition type="note" >}}
+When `-ingester.error-sample-rate` is configured to a value greater than `0`, this error is logged only once every `-ingester.error-sample-rate` times.
+{{< /admonition >}}
+
 ### err-mimir-sample-out-of-order
 
 This error occurs when the ingester rejects a sample because another sample with a more recent timestamp has already been ingested.
@@ -1983,6 +2046,10 @@ Common **causes**:
 You can learn more about out of order samples in Prometheus, in the blog post [Debugging out of order samples](https://www.robustperception.io/debugging-out-of-order-samples/).
 {{< /admonition >}}
 
+{{< admonition type="note" >}}
+When `-ingester.error-sample-rate` is configured to a value greater than `0`, this error is logged only once every `-ingester.error-sample-rate` times.
+{{< /admonition >}}
+
 ### err-mimir-sample-duplicate-timestamp
 
 This error occurs when the ingester rejects a sample because it is a duplicate of a previously received sample with the same timestamp but different value in the same time series.
@@ -1991,6 +2058,10 @@ Common **causes**:
 
 - Multiple endpoints are exporting the same metrics, or multiple Prometheus instances are scraping different metrics with identical labels.
 - Prometheus relabelling has been configured and it causes series to clash after the relabelling. Check the error message for information about which series has received a duplicate sample.
+
+{{< admonition type="note" >}}
+When `-ingester.error-sample-rate` is configured to a value greater than `0`, this error is logged only once every `-ingester.error-sample-rate` times.
+{{< /admonition >}}
 
 ### err-mimir-exemplar-series-missing
 
